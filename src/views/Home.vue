@@ -1,8 +1,10 @@
 <template>
   <div class="file">
-    <div class="upload">
+    <div class="header">
       <v-btn @click="upload">上传文件</v-btn>
       <input ref="file" type="file" style="display:none" accept=".doc, .docx" @change="fileChange">
+      <v-btn style="margin-left: 20px" @click="selectedExport()">导出doc</v-btn>
+
     </div>
 
     <v-data-table
@@ -18,37 +20,43 @@
       <template v-slot:top>
         <v-switch v-model="singleSelect" label="Single select" class="pa-3"></v-switch>
       </template>
-      <template v-slot:item.iron>
-        <div>
-          <v-btn color="error"
-                 @click="previewDoc()">预览文件
-          </v-btn>
-
-        </div>
-      </template>
-
 
     </v-data-table>
-    <v-btn @click="selectedExport()">导出doc</v-btn>
-    <v-btn @click="modifyword">btn</v-btn>
-    <!--      遮罩层-->
-    <v-overlay :value="overlay">
+    <div>
+      <!--      预览-->
       <v-btn
-          icon
-          @click="overlay = false"
+          color="error"
+          dark
+          @click.stop="previewDoc"
       >
-        <v-icon>mdi-close</v-icon>
+        预览
       </v-btn>
+      <!--          dialog对话框-->
+      <v-dialog
+          v-model="dialog"
+          width="90%"
+      >
+        <v-card>
+          <v-card-text>
+            <div className="my-component" ref="preview"></div>
+          </v-card-text>
+          <v-divider></v-divider>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn
+                color="primary"
+                text
+                @click="dialog = false"
+            >
+              关闭
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
-      <div v-for="item in templateList">
-        <v-card-text>{{ item }}</v-card-text>
-        <PreviewWord></PreviewWord>
-      </div>
-    </v-overlay>
-
-    <div className="my-component" ref="preview">
-      <!--      <input type="file" @change="preview" ref="file">-->
     </div>
+
+
   </div>
 </template>
 
@@ -68,17 +76,10 @@ export default {
     PreviewWord
   },
   data: () => ({
-    selectList: [
-      {
-        lingquriqi: "2022年07月08日",
-        panjueshengxiaoshijian: "2022年07月08日",
-        xingming: "王素风",
-        zhixingxingfa: "有期徒刑七个月",
-        zuiming: "盗窃罪"
-      }
-    ],//选择需要导出的文档数据
+    selectList: [],//选择需要导出的文档数据
     overlay: false,
     file: null,
+    dialog: false,
     templateList: [],
     wordname: "",
     singleSelect: false,
@@ -144,20 +145,86 @@ export default {
         });
         // 将目标文件对象保存为目标类型的文件，并命名
         console.log(out)
-        // saveAs(out, _this.outwordname);
+        saveAs(out, _this.outwordname);
 
-        _this.fileDoc = out;
+        // _this.fileDoc = out;
+        // _this.$nextTick(() => {
+        //   _this.preview(out)
+        // })
+      });
+    },
+    previewDoc() {
+      if (this.selected.length === 0) {
+        this.dialog = false;
+        alert("请选择需要预览的文件")
+      } else if (this.selected.length > 1) {
+        this.dialog = false;
+        alert("你选中了多条数据 预览模式只支持单个文件演示")
+      } else {
+        this.dialog = true;
+        this.selectList = [];
+        this.selectList = this.selected;
+        this.previewDocOne();
+      }
+    },
+
+    previewDocOne() {
+      let _this = this;
+      // 读取并获得模板文件的二进制内容
+      JSZipUtils.getBinaryContent("a1.docx", function (error, content) {
+        // input.docx是模板。我们在导出的时候，会根据此模板来导出对应的数据
+        // 抛出异常
+        if (error) {
+          throw error;
+        }
+        // 创建一个JSZip实例，内容为模板的内容
+        let zip = new JSZip(content);
+        // 创建并加载docxtemplater实例对象
+        let doc = new docxtemplater().loadZip(zip);
+        // 设置模板变量的值
+        doc.setData({
+          ..._this.selectList[0], //这里是上面form表单的内容
+        });
+        try {
+          // 用模板变量的值替换所有模板变量
+          doc.render();
+        } catch (error) {
+          // 抛出异常
+          let e = {
+            message: error.message,
+            name: error.name,
+            stack: error.stack,
+            properties: error.properties
+          };
+          console.log(JSON.stringify({
+            error: e
+          }));
+          throw error;
+        }
+        // 生成一个代表docxtemplater对象的zip文件（不是一个真实的文件，而是在内存中的表示）
+        let out = doc.getZip().generate({
+          type: "blob",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        });
+        // 将目标文件对象保存为目标类型的文件，并命名
+        console.log(out)
+        // saveAs(out, _this.outwordname);
         _this.$nextTick(() => {
           _this.preview(out)
         })
       });
     },
-    previewDoc() {
-      this.overlay = !this.overlay;
-      this.templateList = this.selected
-    },
     selectedExport() {
-      console.log(this.selected)
+      this.selectList = this.selected;
+      if (this.selectList.length === 0) {
+        alert("请选中需要导出的文件")
+      } else {
+        for (let i = 0; i < this.selected.length; i++) {
+          this.modifyword(i);
+          console.log(i)
+        }
+      }
+
     },
 
     upload() {
@@ -167,7 +234,7 @@ export default {
       let formData = new FormData()
       formData.append('file', e.target.files[0])
       this.$axios({
-        url: 'http://192.168.1.142:9090/api/elicit',
+        url: 'http://127.0.0.1:9090/api/elicit',
         method: 'post',
         data: formData,
         processData: false,// 告诉axios不要去处理发送的数据(重要参数)
@@ -188,7 +255,7 @@ export default {
 </script>
 
 <style lang="less">
-.file {
-  margin-top: 20px;
+.header {
+  margin: 20px;
 }
 </style>
